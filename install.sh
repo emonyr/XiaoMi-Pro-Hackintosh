@@ -19,6 +19,8 @@ OFF="\033[m"
 
 pledit=/usr/libexec/PlistBuddy
 
+RELEASE_Dir=""
+
 # Exit in case of network failure
 function networkWarn() {
   echo -e "[ ${RED}ERROR${OFF} ]: Fail to download resources from ${repoURL}, please check your connection!"
@@ -34,7 +36,7 @@ function checkMainboard() {
   # new folder for work
   WORK_DIR="$HOME/Desktop/EFI_XIAOMI-PRO"
   [[ -d "${WORK_DIR}" ]] && rm -rf "${WORK_DIR}"
-  mkdir -p "${WORK_DIR}" && cd "${WORK_DIR}"
+  mkdir -p "${WORK_DIR}" && cd "${WORK_DIR}" || exit 1
 
   local repoURL="https://raw.githubusercontent.com/daliansky/Hackintosh/master/Tools/bdmesg"
   curl --silent -O "${repoURL}" || networkWarn
@@ -44,31 +46,37 @@ function checkMainboard() {
   if [ "${MAINBOARD}" != "${MODEL_MX150}" ] && [ "${MAINBOARD}" != "${MODEL_GTX}" ]; then
     echo "Your mainboard is ${MAINBOARD}"
     echo -e "[ ${RED}ERROR${OFF} ]:Not a XiaoMi-Pro, please check your model!"
-    clean
-    exit 1
+    echo "This script is only for Clover user!"
+    # clean
+    # exit 1
   fi
 }
 
 # Check kexts with invalid signature by rebuilding kextcache
 function checkSystemIntegrity() {
+  local KEXT_LIST
+  local APPLE_KEXT
+  local FakeSMC
+  local VirtualSMC
+
   echo
   echo "Rebuilding kextcache..."
   sudo kextcache -i / &> kextcache_log.txt
   echo -e "[ ${GREEN}OK${OFF} ]Rebuild complete"
 
   # check total line number of kextcache_log.txt
-  local KEXT_LIST=$(cat "kextcache_log.txt" |wc -l)
+  KEXT_LIST=$(cat "kextcache_log.txt" |wc -l)
   # check if apple kexts have been modified
-  local APPLE_KEXT=$(grep 'com.apple' kextcache_log.txt)
+  APPLE_KEXT=$(grep 'com.apple' kextcache_log.txt)
   # check FakeSMC in S/L/E and L/E
-  local FakeSMC=$(grep 'FakeSMC' kextcache_log.txt)
+  FakeSMC=$(grep 'FakeSMC' kextcache_log.txt)
   # check VirtualSMC in S/L/E and L/E
-  local VirtualSMC=$(grep 'VirtualSMC' kextcache_log.txt)
+  VirtualSMC=$(grep 'VirtualSMC' kextcache_log.txt)
 
   if [[ -n ${APPLE_KEXT} ]]; then
     echo -e "[ ${RED}ERROR${OFF} ]:Native apple kexts have been modified, please keep S/L/E and L/E untouched!"
-    clean
-    exit 1
+    # clean
+    # exit 1
   elif [[ -n ${FakeSMC} ]]; then
     echo -e "[ ${RED}ERROR${OFF} ]:Detected FakeSMC in system partition, kexts in CLOVER folder will not work!"
     clean
@@ -76,7 +84,7 @@ function checkSystemIntegrity() {
   elif [[ -n ${VirtualSMC} ]]; then
     echo -e "[ ${BLUE}WARNING${OFF} ]:Detected VirtualSMC in system partition, kexts in CLOVER folder may not work!"
     echo "Please backup EFI folder to an external device before updating EFI"
-  elif [ ${KEXT_LIST} -lt 1 ]; then
+  elif [ "${KEXT_LIST}" -lt 1 ]; then
   # if larger than one, means that native kexts may be modified, or unknown kexts are installed in /L/E or /S/L/E
     echo -e "[ ${BLUE}WARNING${OFF} ]: Your system has kext(s) with invalid signature, which may cause serious trouble!"
     echo "Please backup EFI folder to an external device before updating EFI"
@@ -142,6 +150,9 @@ function downloadEFI() {
   curl -# -L -O "${repoURL}" || networkWarn
   # decompress it
   unzip -qu "${xmFileName}"
+
+  RELEASE_Dir="XiaoMi_Pro-${ver}"
+
   # remove stuffs we do not need
   rm -rf "${xmFileName}"
   echo -e "[ ${GREEN}OK${OFF} ]Download complete"
@@ -149,13 +160,26 @@ function downloadEFI() {
 
 # Backup DefaultVolume, Timeout, Serial Numbers, theme, BOOT and CLOVER folder
 function backupEFI() {
+  local DATE
+  local DefaultVolume
+  local Timeout
+  local SerialNumber
+  local BoardSerialNumber
+  local SmUUID
+  local ROM
+  local MLB
+  local CustomUUID
+  local InjectSystemID
+  local framebufferfbmem
+  local framebufferstolenmem
+
   mountEFI
 
   # new folder for backup
   echo
   echo "Creating backup..."
   # generate time stamp
-  local DATE="$(date "+%Y-%m-%d_%H-%M-%S")"
+  DATE="$(date "+%Y-%m-%d_%H-%M-%S")"
   BACKUP_DIR="$HOME/Desktop/backupEFI_${DATE}"
   [[ -d "${BACKUP_DIR}" ]] && rm -rf "${BACKUP_DIR}"
   mkdir -p "${BACKUP_DIR}"
@@ -165,64 +189,64 @@ function backupEFI() {
 
   echo
   echo "Copying previous settings to new CLOVER..."
-  local DefaultVolume="$($pledit -c 'Print Boot:DefaultVolume' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local Timeout="$($pledit -c 'Print Boot:Timeout' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local SerialNumber="$($pledit -c 'Print SMBIOS:SerialNumber' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local BoardSerialNumber="$($pledit -c 'Print SMBIOS:BoardSerialNumber' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local SmUUID="$($pledit -c 'Print SMBIOS:SmUUID' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local ROM="$($pledit -c 'Print RtVariables:ROM' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local MLB="$($pledit -c 'Print RtVariables:MLB' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local CustomUUID="$($pledit -c 'Print SystemParameters:CustomUUID' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local InjectSystemID="$($pledit -c 'Print SystemParameters:InjectSystemID' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local framebufferfbmem="$($pledit -c 'Print Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-fbmem' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local framebufferstolenmem="$($pledit -c 'Print Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem' ${BACKUP_DIR}/CLOVER/config.plist)"
+  DefaultVolume="$($pledit -c 'Print Boot:DefaultVolume' "${BACKUP_DIR}/CLOVER/config.plist")"
+  Timeout="$($pledit -c 'Print Boot:Timeout' "${BACKUP_DIR}/CLOVER/config.plist")"
+  SerialNumber="$($pledit -c 'Print SMBIOS:SerialNumber' "${BACKUP_DIR}/CLOVER/config.plist")"
+  BoardSerialNumber="$($pledit -c 'Print SMBIOS:BoardSerialNumber' "${BACKUP_DIR}/CLOVER/config.plist")"
+  SmUUID="$($pledit -c 'Print SMBIOS:SmUUID' "${BACKUP_DIR}/CLOVER/config.plist")"
+  ROM="$($pledit -c 'Print RtVariables:ROM' "${BACKUP_DIR}/CLOVER/config.plist")"
+  MLB="$($pledit -c 'Print RtVariables:MLB' "${BACKUP_DIR}/CLOVER/config.plist")"
+  CustomUUID="$($pledit -c 'Print SystemParameters:CustomUUID' "${BACKUP_DIR}/CLOVER/config.plist")"
+  InjectSystemID="$($pledit -c 'Print SystemParameters:InjectSystemID' "${BACKUP_DIR}/CLOVER/config.plist")"
+  framebufferfbmem="$($pledit -c 'Print Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-fbmem' "${BACKUP_DIR}/CLOVER/config.plist")"
+  framebufferstolenmem="$($pledit -c 'Print Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem' "${BACKUP_DIR}/CLOVER/config.plist")"
 
   # check whether DefaultVolume and Timeout exist, copy if yes
   if [[ -n "${DefaultVolume}" ]]; then
-    $pledit -c "Set Boot:DefaultVolume ${DefaultVolume}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Set Boot:DefaultVolume ${DefaultVolume}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${Timeout}" ]]; then
-    $pledit -c "Set Boot:Timeout ${Timeout}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Set Boot:Timeout ${Timeout}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   # check whether serial numbers exist, copy if yes
   if [[ -n "${SerialNumber}" ]]; then
-    $pledit -c "Add SMBIOS:SerialNumber string ${SerialNumber}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Add SMBIOS:SerialNumber string ${SerialNumber}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${BoardSerialNumber}" ]]; then
-    $pledit -c "Add SMBIOS:BoardSerialNumber string ${BoardSerialNumber}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Add SMBIOS:BoardSerialNumber string ${BoardSerialNumber}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${SmUUID}" ]]; then
-    $pledit -c "Add SMBIOS:SmUUID string ${SmUUID}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Add SMBIOS:SmUUID string ${SmUUID}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${ROM}" ]]; then
-    $pledit -c "Set RtVariables:ROM ${ROM}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Set RtVariables:ROM ${ROM}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${MLB}" ]]; then
-    $pledit -c "Add RtVariables:MLB string ${MLB}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Add RtVariables:MLB string ${MLB}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${CustomUUID}" ]]; then
-    $pledit -c "Add SystemParameters:CustomUUID string ${CustomUUID}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Add SystemParameters:CustomUUID string ${CustomUUID}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${InjectSystemID}" ]]; then
-    $pledit -c "Set SystemParameters:InjectSystemID ${InjectSystemID}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Set SystemParameters:InjectSystemID ${InjectSystemID}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   else
-    $pledit -c "Set SystemParameters:InjectSystemID false" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Set SystemParameters:InjectSystemID false" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -z "${framebufferfbmem}" ]]; then
-    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-fbmem" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-fbmem" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -z "${framebufferstolenmem}" ]]; then
-    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   echo -e "[ ${GREEN}OK${OFF} ]Copy complete"
@@ -230,8 +254,10 @@ function backupEFI() {
   echo
   echo "Copying theme to new CLOVER..."
 
-  rm -rf "XiaoMi_Pro-${ver}/EFI/CLOVER/themes"
-  cp -rf "${BACKUP_DIR}/CLOVER/themes" "XiaoMi_Pro-${ver}/EFI/CLOVER/"
+  rm -rf "${BACKUP_DIR}/CLOVER/themes/Xiaomi"
+  cp -rf "$RELEASE_Dir/EFI/CLOVER/themes/Xiaomi" "${BACKUP_DIR}/CLOVER/themes/"
+  rm -rf "$RELEASE_Dir/EFI/CLOVER/themes"
+  cp -rf "${BACKUP_DIR}/CLOVER/themes" "$RELEASE_Dir/EFI/CLOVER/"
 
   # create a config.plist with only GUI directory inside
   # TODO: use a more efficient way to copy GUI directory
@@ -247,8 +273,8 @@ function backupEFI() {
   $pledit -c "Delete SystemParameters" "${WORK_DIR}/GUI.plist"
 
   # merge GUI.plist to config.plist to save theme settings
-  $pledit -c "Delete GUI" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
-  $pledit -c "Merge GUI.plist" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+  $pledit -c "Delete GUI" "$RELEASE_Dir/EFI/CLOVER/config.plist"
+  $pledit -c "Merge GUI.plist" "$RELEASE_Dir/EFI/CLOVER/config.plist"
 
   echo -e "[ ${GREEN}OK${OFF} ]Copy complete"
 }
@@ -272,7 +298,7 @@ function compareEFI() {
   echo
   echo "Comparing old and new EFI folder..."
   # generate tree diagram of new CLOVER folder
-  find "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER" -print | sed -e 's;[^/]*/;|____;g;s;____|; |;g' &> NewEFI_TREE.txt
+  find "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER" -print | sed -e 's;[^/]*/;|____;g;s;____|; |;g' &> NewEFI_TREE.txt
   # remove first few strings
   sed -i '' 's/^.................//' NewEFI_TREE.txt
   # remove lines which have DS_Store
@@ -312,8 +338,8 @@ function editEFI() {
 
   # if GTX, SSDT-LGPA need to be replaced with SSDT-LGPAGTX
   if [ "${MAINBOARD}" == "TM1707" ]; then
-    rm -f "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/SSDT-LGPA.aml"
-    cp -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/GTX_Users_Read_This/SSDT-LGPAGTX.aml" "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/"
+    rm -f "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/SSDT-LGPA.aml"
+    cp -rf "${WORK_DIR}/$RELEASE_Dir/GTX_Users_Read_This/SSDT-LGPAGTX.aml" "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/"
   fi
 
   echo
@@ -332,18 +358,24 @@ function editEFI() {
     ;;
 
     2)
-    rm -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/SSDT-USB.aml"
-    cp -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/SSDT-USB-USBBT.aml" "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/"
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/SSDT-USB.aml"
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/kexts/Other/IntelBluetoothFirmware.kext" >/dev/null 2>&1
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/kexts/Other/IntelBluetoothInjector.kext" >/dev/null 2>&1
+    cp -rf "${WORK_DIR}/$RELEASE_Dir/SSDT-USB-USBBT.aml" "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/"
     ;;
 
     3)
-    rm -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/SSDT-USB.aml"
-    cp -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/SSDT-USB-WLAN_LTEBT.aml" "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/"
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/SSDT-USB.aml"
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/kexts/Other/IntelBluetoothFirmware.kext" >/dev/null 2>&1
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/kexts/Other/IntelBluetoothInjector.kext" >/dev/null 2>&1
+    cp -rf "${WORK_DIR}/$RELEASE_Dir/SSDT-USB-WLAN_LTEBT.aml" "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/"
     ;;
 
     4)
-    rm -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/SSDT-USB.aml"
-    cp -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/SSDT-USB-FingerBT.aml" "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/"
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/SSDT-USB.aml"
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/kexts/Other/IntelBluetoothFirmware.kext" >/dev/null 2>&1
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/kexts/Other/IntelBluetoothInjector.kext" >/dev/null 2>&1
+    cp -rf "${WORK_DIR}/$RELEASE_Dir/SSDT-USB-FingerBT.aml" "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/"
     ;;
 
     *)
@@ -372,20 +404,32 @@ function replaceEFI() {
   echo
   echo "Updating EFI folder..."
   rm -rf "${EFI_DIR}/EFI/CLOVER" && rm -rf "${EFI_DIR}/EFI/BOOT"
-  cp -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/BOOT" "${EFI_DIR}/EFI/" || restoreEFI
-  cp -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER" "${EFI_DIR}/EFI/"  || restoreEFI
+  cp -rf "${WORK_DIR}/$RELEASE_Dir/EFI/BOOT" "${EFI_DIR}/EFI/" || restoreEFI
+  cp -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER" "${EFI_DIR}/EFI/"  || restoreEFI
   echo -e "[ ${GREEN}OK${OFF} ]Update complete"
 }
 
 function updateEFI() {
-  checkSystemIntegrity
-  downloadEFI
-  backupEFI
-  confirmBackup
-  compareEFI
-  editEFI
-  replaceEFI
-  unmountEFI
+  if [[ $1 == "--LOCAL_RELEASE" ]]; then
+    checkSystemIntegrity
+    mv "build/XiaoMi_Pro-local" "./"
+    RELEASE_Dir="XiaoMi_Pro-local"
+    backupEFI
+    confirmBackup
+    compareEFI
+    editEFI
+    replaceEFI
+    unmountEFI
+  else
+    checkSystemIntegrity
+    downloadEFI
+    backupEFI
+    confirmBackup
+    compareEFI
+    editEFI
+    replaceEFI
+    unmountEFI
+  fi
 }
 
 # Delete previous Bluetooth configurations(SSDT-USB, SSDT-USB-USBBT, SSDT-SolderBT(changed to SSDT-USB-WLAN_LTEBT), SSDT-USB-WLAN_LTEBT, and SSDT-USB-FingerBT)
@@ -396,6 +440,9 @@ function deleteBT() {
   rm -rf "${EFI_DIR}/EFI/CLOVER/ACPI/patched/SSDT-USB-SolderBT.aml" >/dev/null 2>&1
   rm -rf "${EFI_DIR}/EFI/CLOVER/ACPI/patched/SSDT-USB-WLAN_LTEBT.aml" >/dev/null 2>&1
   rm -rf "${EFI_DIR}/EFI/CLOVER/ACPI/patched/SSDT-USB-FingerBT.aml" >/dev/null 2>&1
+  
+  rm -rf "${EFI_DIR}/EFI/CLOVER/kexts/Other/IntelBluetoothFirmware.kext" >/dev/null 2>&1
+  rm -rf "${EFI_DIR}/EFI/CLOVER/kexts/Other/IntelBluetoothInjector.kext" >/dev/null 2>&1
 
   # need unmountEFI after calling this function
 }
@@ -463,56 +510,6 @@ function changeBT() {
   echo -e "[ ${GREEN}OK${OFF} ]Change complete"
 }
 
-# Remove DVMT patch or 0xE2 MSR patch if scripts in https://github.com/daliansky/XiaoMi-Pro-Hackintosh/tree/master/BIOS/DVMT_and_0xE2_fix are installed, credit Menchen
-function removeDVMTMSR() {
-  echo
-  echo "Before editing, please read https://github.com/daliansky/XiaoMi-Pro-Hackintosh/blob/master/BIOS/DVMT_and_0xE2_fix/README.md"
-  open -a "/Applications/Safari.app" https://github.com/daliansky/XiaoMi-Pro-Hackintosh/blob/master/BIOS/DVMT_and_0xE2_fix/README.md
-
-  echo
-  echo "---------------------------------------------------------"
-  echo "|**************** Choose Clover patches ****************|"
-  echo "---------------------------------------------------------"
-  echo "(1) 0xE2 MSR patch & 32mb DVMT patch (Default)"
-  echo "(2) 0xE2 MSR patch only, choose this if DVMT = 64mb"
-  echo "(3) 32mb DVMT patch only, choose this if 0xE2 MSR is unlocked"
-  echo "(4) No patch, choose this if you have both patches in BIOS"
-  echo "${BOLD}Which option you want to choose? (1/2/3/4)${OFF}"
-  read -rp ":" cloverpatch_selection
-  case ${cloverpatch_selection} in
-    1)
-    # Keep default
-    ;;
-
-    2)
-    mountEFI
-    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-fbmem" "${EFI_DIR}/EFI/CLOVER/config.plist"
-    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem" "${EFI_DIR}/EFI/CLOVER/config.plist"
-    unmountEFI
-    ;;
-
-    3)
-    mountEFI
-    $pledit -c "delete KernelAndKextPatches:KernelToPatch:0" "${EFI_DIR}/EFI/CLOVER/config.plist"
-    unmountEFI
-    ;;
-
-    4)
-    mountEFI
-    $pledit -c "delete KernelAndKextPatches:KernelToPatch:0" "${EFI_DIR}/EFI/CLOVER/config.plist"
-    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-fbmem" "${EFI_DIR}/EFI/CLOVER/config.plist"
-    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem" "${EFI_DIR}/EFI/CLOVER/config.plist"
-    unmountEFI
-    ;;
-
-    *)
-    echo -e "[ ${RED}ERROR${OFF} ]: Invalid input"
-    returnMenu
-    ;;
-  esac
-  echo -e "[ ${GREEN}OK${OFF} ]Change complete"
-}
-
 function fixWindows() {
   echo
   echo "Make sure you can boot Windows with F12"
@@ -521,7 +518,13 @@ function fixWindows() {
   curl --silent -O "${repoURL}" || networkWarn
 
   mountEFI
-  cp -rf "AptioMemoryFix.efi" "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/"
+  if [[ -f "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/AptioMemoryFix.efi" ]]; then
+    cp -rf "AptioMemoryFix.efi" "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/"
+  elif [[ -f "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/OcQuirks.efi" ]]; then
+    rm -rf "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/OcQuirks.efi"
+    rm -rf "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/OpenRuntime.efi"
+    cp -rf "AptioMemoryFix.efi" "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/"
+  fi
   echo -e "[ ${GREEN}OK${OFF} ]Fix complete"
 
   unmountEFI
@@ -608,18 +611,19 @@ function main() {
   echo "Your mainboard is ${MAINBOARD}"
   echo '========================================================================='
   echo -e "${BOLD}(1) Update EFI${OFF}"
-  echo "(2) Change Bluetooth mode (Only support the latest release)"
-  echo "(3) General audio fix (credits Menchen)"
-  echo "(4) Add color profile"
-  echo "(5) Update power management"
-  echo "(6) Modify TDP and CPU voltage (credits Pasi-Studio)"
-  echo "(7) Enable HiDPI"
-  echo "(8) Set DVMT to 64mb (for 4K screen) and unlock 0xE2 MSR (credit Menchen)"
-  echo "(9) Fix Windows boot (Only support the latest release)"
-  echo "(10) Fix Apple services"
-  echo "(11) Problem report"
-  echo "(12) Exit"
-  echo -e "${BOLD}Which option you want to choose? (1/2/3/4/5/6/7/8/9/10/11/12)${OFF}"
+  echo "(2) Build beta EFI"
+  echo "(3) Build and update beta EFI"
+  echo "(4) Change Bluetooth mode (Only support the latest release)"
+  echo "(5) General audio fix (credits Menchen)"
+  echo "(6) Add color profile"
+  echo "(7) Update power management"
+  echo "(8) Modify TDP and CPU voltage (credits Pasi-Studio)"
+  echo "(9) Enable HiDPI"
+  echo "(10) Fix Windows boot (Only support the latest release)"
+  echo "(11) Fix Apple services"
+  echo "(12) Problem report"
+  echo "(13) Exit"
+  echo -e "${BOLD}Which option you want to choose? (1/2/3/4/5/6/7/8/9/10/11/12/13)${OFF}"
   read -rp ":" xm_selection
   case ${xm_selection} in
     1)
@@ -628,56 +632,61 @@ function main() {
     ;;
 
     2)
-    changeBT
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/makefile.sh)"
     returnMenu
     ;;
 
     3)
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/ALCPlugFix/one-key-alcplugfix.sh)"
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/makefile.sh)" && updateEFI "--LOCAL_RELEASE"
     returnMenu
     ;;
 
     4)
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/ColorProfile/one-key-colorprofile.sh)"
+    changeBT
     returnMenu
     ;;
 
     5)
-    bash -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/one-key-cpufriend/one-key-cpufriend.sh)"
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/ALCPlugFix/one-key-alcplugfix.sh)"
     returnMenu
     ;;
 
     6)
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/Pasi-Studio/mpcpu/master/mpcpu.sh)"
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/ColorProfile/one-key-colorprofile.sh)"
     returnMenu
     ;;
 
     7)
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/one-key-hidpi/one-key-hidpi.sh)"
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/one-key-cpufriend/one-key-cpufriend.sh)"
     returnMenu
     ;;
 
     8)
-    removeDVMTMSR
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/Pasi-Studio/mpcpu/master/mpcpu.sh)"
     returnMenu
     ;;
 
     9)
-    fixWindows
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/xzhih/one-key-hidpi/master/hidpi.sh)"
     returnMenu
     ;;
 
     10)
-    fixAppleService
+    fixWindows
     returnMenu
     ;;
 
     11)
-    reportProblem
+    fixAppleService
     returnMenu
     ;;
 
     12)
+    reportProblem
+    returnMenu
+    ;;
+
+    13)
     clean
     echo
     echo "Wish you have a good day! Bye"

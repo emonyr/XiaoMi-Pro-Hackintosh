@@ -1,10 +1,10 @@
 # Update BIOS and Unlock Better Performance
 
-English | [中文](README_CN.md)
+**English** | [中文](README_CN.md)
 
 ## Introduction
 
-The BIOS packet in [XMAKB5R0P0906](XMAKB5R0P0906) folder is from Xiaomi stuff, so it is reliable. <b>This pack is only compatible with MX150 version.</b>
+The BIOS packet in [XMAKB5R0P0603](XMAKB5R0P0603), [XMAKB5R0P0906](XMAKB5R0P0906) and [XMAKB5R0P0A07](XMAKB5R0P0A07.exe) are from Xiaomi stuff, so they are reliable. **These packets are only compatible with MX150 version.**
 
 ~The ME firmware in [ME](ME) folder is from [Fernando's Win-RAID Forum](https://www.win-raid.com/t596f39-Intel-Management-Engine-Drivers-Firmware-amp-System-Tools.html). Using the latest ME firmware helps to avoid potential malicious attack. The ME firmware version in the folder is `Intel CSME 11.8 Consumer PCH-LP Firmware v11.8.55.3510` and the version of `Intel (CS)ME System Tools` is `Intel CSME System Tools v11 r14 - (2018-08-09)`.~
 
@@ -19,9 +19,27 @@ If unfortunately, this situation happens on you, you need to find Xiaomi stuff t
 - Reduce fan noise when CPU is running in low load
 
 
-## How to update BIOS
+### What's new in 0A07 BIOS
 
- As the old proverb says "Fight no battle unprepared", <b>backing up important data is always a good choice.</b> Some users face with blue screen after running the updating program.
+- I have no idea about this version. The packet provider doesn't give much information.
+- On my laptop, the `KB Backlight Mode` - `Standard` is not working.
+- It's very easy to upgrade to this version. Just download and open [XMAKB5R0P0A07](XMAKB5R0P0A07.exe).
+
+
+## How to upgrade/downgrade to 0603 BIOS
+
+1. Prepare a FAT32 U-disk, download all the files in [XMAKB5R0P0603](XMAKB5R0P0603) folder and put them into the root directory of the U-disk.
+
+2. Reboot the laptop with AC charge on, press `F12`, and choose the U-disk entry.
+
+3. In the shell interface, type `unlockme.nsh`, and then the device may reboot. After that, repeat the second step and type `flash.nsh`.
+
+4. Wait until the install process completes.
+
+
+## How to update 0906 BIOS
+
+ As the old proverb says "Fight no battle unprepared", **backing up important data is always a good choice.** Some users face with blue screen after running the updating program.
 
 1. Download all the files in [XMAKB5R0P0906](XMAKB5R0P0906) folder.
 
@@ -35,13 +53,12 @@ If unfortunately, this situation happens on you, you need to find Xiaomi stuff t
 
 ## How to unlock better performance
 
-<b>MX150 Only.</b>
-[FallenChromium](https://github.com/FallenChromium) and [Cyb](http://4pda.ru/forum/index.php?showuser=914121) created scripts for changing DVMT size from 32MB to 64MB, unlocking MSR 0xE2, and editing Embedded Controller(EC) firmware to reduce fan nosie. For more information, you can visit [#8](https://github.com/stevezhengshiqi/XiaoMi-Pro/issues/8) and [cybsuai's repository](https://github.com/cybsuai/Mi-Notebook-Pro-tweaks).
-
-DVMT set and CFG unlock scripts are included in latest release.
+**MX150 Only.**
+[FallenChromium](https://github.com/FallenChromium) and [Cyb](http://4pda.ru/forum/index.php?showuser=914121) created scripts for changing DVMT size from 32mb to 64mb, unlocking MSR 0xE2, and editing Embedded Controller(EC) firmware to reduce fan nosie. For more information, you can visit [#8](https://github.com/stevezhengshiqi/XiaoMi-Pro/issues/8) and [cybsuai's repository](https://github.com/cybsuai/Mi-Notebook-Pro-tweaks).
 
 
 ## Credits
 
-- Thanks to [Xiaomi Official](https://www.mi.com/service/bijiben/) and [一土木水先生](http://bbs.xiaomi.cn/u-detail-1242799508) for providing BIOS packet. The original source is at [here](http://bbs.xiaomi.cn/t-36660609-1).
+- Thanks to [Xiaomi Official](https://www.mi.com/service/bijiben/) and [一土木水先生](http://bbs.xiaomi.cn/u-detail-1242799508) for providing 0603 and 0906 BIOS packet. The original source is at [here](http://bbs.xiaomi.cn/t-36660609-1).
+- Thanks to a friendly guy for providing 0A07 BIOS packet. He doesn't want to be in trouble so please don't spread the 0A07 BIOS packet.
 - Thanks to [Cyb](http://4pda.ru/forum/index.php?showuser=914121) and [FallenChromium](https://github.com/FallenChromium) for writing incredible scripts to unlock better performance.

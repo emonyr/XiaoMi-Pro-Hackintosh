@@ -19,6 +19,8 @@ OFF="\033[m"
 
 pledit=/usr/libexec/PlistBuddy
 
+RELEASE_Dir=""
+
 # 退出如果网络异常
 function networkWarn() {
   echo -e "[ ${RED}ERROR${OFF} ]: 从${repoURL}下载资源失败, 请检查您的网络连接!"
@@ -34,7 +36,7 @@ function checkMainboard() {
   # 创建工程文件夹
   WORK_DIR="$HOME/Desktop/EFI_XIAOMI-PRO"
   [[ -d "${WORK_DIR}" ]] && rm -rf "${WORK_DIR}"
-  mkdir -p "${WORK_DIR}" && cd "${WORK_DIR}"
+  mkdir -p "${WORK_DIR}" && cd "${WORK_DIR}" || exit 1
 
   local repoURL="https://raw.githubusercontent.com/daliansky/Hackintosh/master/Tools/bdmesg"
   curl --silent -O "${repoURL}" || networkWarn
@@ -44,31 +46,37 @@ function checkMainboard() {
   if [ "${MAINBOARD}" != "${MODEL_MX150}" ] && [ "${MAINBOARD}" != "${MODEL_GTX}" ]; then
     echo "您的主板型号是 ${MAINBOARD}"
     echo -e "[ ${RED}ERROR${OFF} ]:不是小米笔记本Pro, 请检查您的型号!"
-    clean
-    exit 1
+    echo "此脚本仅限Clover用户!"
+    # clean
+    # exit 1
   fi
 }
 
 # 检查未签名的扩展，通过重建缓存的方式
 function checkSystemIntegrity() {
+  local KEXT_LIST
+  local APPLE_KEXT
+  local FakeSMC
+  local VirtualSMC
+
   echo
   echo "正在重建缓存..."
   sudo kextcache -i / &> kextcache_log.txt
   echo -e "[ ${GREEN}OK${OFF} ]重建完成"
 
   # 检查kextcache_log.txt的总行数
-  local KEXT_LIST=$(cat "kextcache_log.txt" |wc -l)
+  KEXT_LIST=$(cat "kextcache_log.txt" |wc -l)
   # 检查苹果原生驱动是否被修改
-  local APPLE_KEXT=$(grep 'com.apple' kextcache_log.txt)
+  APPLE_KEXT=$(grep 'com.apple' kextcache_log.txt)
   # 检查S/L/E和L/E的FakeSMC
-  local FakeSMC=$(grep 'FakeSMC' kextcache_log.txt)
+  FakeSMC=$(grep 'FakeSMC' kextcache_log.txt)
   # 检查S/L/E和L/E的VirtualSMC
-  local VirtualSMC=$(grep 'VirtualSMC' kextcache_log.txt)
+  VirtualSMC=$(grep 'VirtualSMC' kextcache_log.txt)
 
   if [[ -n ${APPLE_KEXT} ]]; then
     echo -e "[ ${RED}ERROR${OFF} ]:苹果原生驱动被修改, 请确保S/L/E和L/E目录里的驱动未被修改!"
-    clean
-    exit 1
+    # clean
+    # exit 1
   elif [[ -n ${FakeSMC} ]]; then
     echo -e "[ ${RED}ERROR${OFF} ]:在系统分区里检测到FakeSMC, CLOVER目录里的驱动将不工作!"
     clean
@@ -76,7 +84,7 @@ function checkSystemIntegrity() {
   elif [[ -n ${VirtualSMC} ]]; then
     echo -e "[ ${BLUE}WARNING${OFF} ]:在系统分区里检测到VirtualSMC, CLOVER目录里的驱动可能不工作!"
     echo "升级EFI前请把EFI备份到外置磁盘"
-  elif [ ${KEXT_LIST} -lt 1 ]; then
+  elif [ "${KEXT_LIST}" -lt 1 ]; then
   # 如果总行数大于1, 说明原生驱动被修改, 或者未知的驱动装进了/L/E 或 /S/L/E
     echo -e "[ ${BLUE}WARNING${OFF} ]: 您的系统含有未签名的驱动扩展, 可能会导致严重的问题!"
     echo "升级EFI前请把EFI备份到外置磁盘"
@@ -142,6 +150,9 @@ function downloadEFI() {
   curl -# -L -O "${repoURL}" || networkWarn
   # 解压
   unzip -qu "${xmFileName}"
+
+  RELEASE_Dir="XiaoMi_Pro-${ver}"
+
   # 移除不需要的文件
   rm -rf "${xmFileName}"
   echo -e "[ ${GREEN}OK${OFF} ]下载完成"
@@ -149,13 +160,26 @@ function downloadEFI() {
 
 # 备份序列号, 主题, BOOT 和 CLOVER 文件夹
 function backupEFI() {
+  local DATE
+  local DefaultVolume
+  local Timeout
+  local SerialNumber
+  local BoardSerialNumber
+  local SmUUID
+  local ROM
+  local MLB
+  local CustomUUID
+  local InjectSystemID
+  local framebufferfbmem
+  local framebufferstolenmem
+
   mountEFI
 
   # 创建备份文件夹
   echo
   echo "正在备份..."
   # 生成时间戳
-  local DATE="$(date "+%Y-%m-%d_%H-%M-%S")"
+  DATE="$(date "+%Y-%m-%d_%H-%M-%S")"
   BACKUP_DIR="$HOME/Desktop/backupEFI_${DATE}"
   [[ -d "${BACKUP_DIR}" ]] && rm -rf "${BACKUP_DIR}"
   mkdir -p "${BACKUP_DIR}"
@@ -165,64 +189,64 @@ function backupEFI() {
 
   echo
   echo "正在恢复旧版配置到新CLOVER文件夹..."
-  local DefaultVolume="$($pledit -c 'Print Boot:DefaultVolume' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local Timeout="$($pledit -c 'Print Boot:Timeout' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local SerialNumber="$($pledit -c 'Print SMBIOS:SerialNumber' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local BoardSerialNumber="$($pledit -c 'Print SMBIOS:BoardSerialNumber' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local SmUUID="$($pledit -c 'Print SMBIOS:SmUUID' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local ROM="$($pledit -c 'Print RtVariables:ROM' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local MLB="$($pledit -c 'Print RtVariables:MLB' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local CustomUUID="$($pledit -c 'Print SystemParameters:CustomUUID' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local InjectSystemID="$($pledit -c 'Print SystemParameters:InjectSystemID' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local framebufferfbmem="$($pledit -c 'Print Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-fbmem' ${BACKUP_DIR}/CLOVER/config.plist)"
-  local framebufferstolenmem="$($pledit -c 'Print Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem' ${BACKUP_DIR}/CLOVER/config.plist)"
+  DefaultVolume="$($pledit -c 'Print Boot:DefaultVolume' "${BACKUP_DIR}/CLOVER/config.plist")"
+  Timeout="$($pledit -c 'Print Boot:Timeout' "${BACKUP_DIR}/CLOVER/config.plist")"
+  SerialNumber="$($pledit -c 'Print SMBIOS:SerialNumber' "${BACKUP_DIR}/CLOVER/config.plist")"
+  BoardSerialNumber="$($pledit -c 'Print SMBIOS:BoardSerialNumber' "${BACKUP_DIR}/CLOVER/config.plist")"
+  SmUUID="$($pledit -c 'Print SMBIOS:SmUUID' "${BACKUP_DIR}/CLOVER/config.plist")"
+  ROM="$($pledit -c 'Print RtVariables:ROM' "${BACKUP_DIR}/CLOVER/config.plist")"
+  MLB="$($pledit -c 'Print RtVariables:MLB' "${BACKUP_DIR}/CLOVER/config.plist")"
+  CustomUUID="$($pledit -c 'Print SystemParameters:CustomUUID' "${BACKUP_DIR}/CLOVER/config.plist")"
+  InjectSystemID="$($pledit -c 'Print SystemParameters:InjectSystemID' "${BACKUP_DIR}/CLOVER/config.plist")"
+  framebufferfbmem="$($pledit -c 'Print Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-fbmem' "${BACKUP_DIR}/CLOVER/config.plist")"
+  framebufferstolenmem="$($pledit -c 'Print Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem' "${BACKUP_DIR}/CLOVER/config.plist")"
 
   # 检查默认启动宗卷和倒计时是否存在，如果存在则拷贝
   if [[ -n "${DefaultVolume}" ]]; then
-    $pledit -c "Set Boot:DefaultVolume ${DefaultVolume}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Set Boot:DefaultVolume ${DefaultVolume}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${Timeout}" ]]; then
-    $pledit -c "Set Boot:Timeout ${Timeout}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Set Boot:Timeout ${Timeout}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   # 检查序列号是否存在，如果存在则拷贝
   if [[ -n "${SerialNumber}" ]]; then
-    $pledit -c "Add SMBIOS:SerialNumber string ${SerialNumber}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Add SMBIOS:SerialNumber string ${SerialNumber}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${BoardSerialNumber}" ]]; then
-    $pledit -c "Add SMBIOS:BoardSerialNumber string ${BoardSerialNumber}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Add SMBIOS:BoardSerialNumber string ${BoardSerialNumber}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${SmUUID}" ]]; then
-    $pledit -c "Add SMBIOS:SmUUID string ${SmUUID}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Add SMBIOS:SmUUID string ${SmUUID}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${ROM}" ]]; then
-    $pledit -c "Set RtVariables:ROM ${ROM}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Set RtVariables:ROM ${ROM}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${MLB}" ]]; then
-    $pledit -c "Add RtVariables:MLB string ${MLB}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Add RtVariables:MLB string ${MLB}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${CustomUUID}" ]]; then
-    $pledit -c "Add SystemParameters:CustomUUID string ${CustomUUID}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Add SystemParameters:CustomUUID string ${CustomUUID}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -n "${InjectSystemID}" ]]; then
-    $pledit -c "Set SystemParameters:InjectSystemID ${InjectSystemID}" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Set SystemParameters:InjectSystemID ${InjectSystemID}" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   else
-    $pledit -c "Set SystemParameters:InjectSystemID false" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "Set SystemParameters:InjectSystemID false" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -z "${framebufferfbmem}" ]]; then
-    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-fbmem" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-fbmem" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   if [[ -z "${framebufferstolenmem}" ]]; then
-    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem" "$RELEASE_Dir/EFI/CLOVER/config.plist"
   fi
 
   echo -e "[ ${GREEN}OK${OFF} ]拷贝完成"
@@ -230,8 +254,10 @@ function backupEFI() {
   echo
   echo "正在拷贝主题到新CLOVER文件夹..."
 
-  rm -rf "XiaoMi_Pro-${ver}/EFI/CLOVER/themes"
-  cp -rf "${BACKUP_DIR}/CLOVER/themes" "XiaoMi_Pro-${ver}/EFI/CLOVER/"
+  rm -rf "${BACKUP_DIR}/CLOVER/themes/Xiaomi"
+  cp -rf "$RELEASE_Dir/EFI/CLOVER/themes/Xiaomi" "${BACKUP_DIR}/CLOVER/themes/"
+  rm -rf "$RELEASE_Dir/EFI/CLOVER/themes"
+  cp -rf "${BACKUP_DIR}/CLOVER/themes" "$RELEASE_Dir/EFI/CLOVER/"
 
   # 创建一个只含有GUI目录的config.plist
   # TODO: 用更有效的方式去保留原config.plist的GUI目录
@@ -247,8 +273,8 @@ function backupEFI() {
   $pledit -c "Delete SystemParameters" "${WORK_DIR}/GUI.plist"
 
   # 合并GUI.plist到config.plist来保存主题设置
-  $pledit -c "Delete GUI" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
-  $pledit -c "Merge GUI.plist" "XiaoMi_Pro-${ver}/EFI/CLOVER/config.plist"
+  $pledit -c "Delete GUI" "$RELEASE_Dir/EFI/CLOVER/config.plist"
+  $pledit -c "Merge GUI.plist" "$RELEASE_Dir/EFI/CLOVER/config.plist"
 
   echo -e "[ ${GREEN}OK${OFF} ]拷贝完成"
 }
@@ -272,7 +298,7 @@ function compareEFI() {
   echo
   echo "正在比较新旧EFI文件夹..."
   # 生成新CLOVER文件夹的树状图
-  find "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER" -print | sed -e 's;[^/]*/;|____;g;s;____|; |;g' &> NewEFI_TREE.txt
+  find "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER" -print | sed -e 's;[^/]*/;|____;g;s;____|; |;g' &> NewEFI_TREE.txt
   # 移除开头的一些字符串
   sed -i '' 's/^.................//' NewEFI_TREE.txt
   # 移除含有DS_Store的行
@@ -312,8 +338,8 @@ function editEFI() {
 
   # 如果是GTX, SSDT-LGPA 需要替换成 SSDT-LGPAGTX
   if [ "${MAINBOARD}" == "TM1707" ]; then
-    rm -f "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/SSDT-LGPA.aml"
-    cp -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/GTX_Users_Read_This/SSDT-LGPAGTX.aml" "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/"
+    rm -f "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/SSDT-LGPA.aml"
+    cp -rf "${WORK_DIR}/$RELEASE_Dir/GTX_Users_Read_This/SSDT-LGPAGTX.aml" "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/"
   fi
 
   echo
@@ -332,18 +358,24 @@ function editEFI() {
     ;;
 
     2)
-    rm -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/SSDT-USB.aml"
-    cp -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/SSDT-USB-USBBT.aml" "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/"
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/SSDT-USB.aml"
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/kexts/Other/IntelBluetoothFirmware.kext" >/dev/null 2>&1
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/kexts/Other/IntelBluetoothInjector.kext" >/dev/null 2>&1
+    cp -rf "${WORK_DIR}/$RELEASE_Dir/SSDT-USB-USBBT.aml" "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/"
     ;;
 
     3)
-    rm -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/SSDT-USB.aml"
-    cp -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/SSDT-USB-WLAN_LTEBT.aml" "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/"
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/SSDT-USB.aml"
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/kexts/Other/IntelBluetoothFirmware.kext" >/dev/null 2>&1
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/kexts/Other/IntelBluetoothInjector.kext" >/dev/null 2>&1
+    cp -rf "${WORK_DIR}/$RELEASE_Dir/SSDT-USB-WLAN_LTEBT.aml" "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/"
     ;;
 
     4)
-    rm -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/SSDT-USB.aml"
-    cp -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/SSDT-USB-FingerBT.aml" "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER/ACPI/patched/"
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/SSDT-USB.aml"
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/kexts/Other/IntelBluetoothFirmware.kext" >/dev/null 2>&1
+    rm -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/kexts/Other/IntelBluetoothInjector.kext" >/dev/null 2>&1
+    cp -rf "${WORK_DIR}/$RELEASE_Dir/SSDT-USB-FingerBT.aml" "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER/ACPI/patched/"
     ;;
 
     *)
@@ -372,20 +404,32 @@ function replaceEFI() {
   echo
   echo "正在更新EFI文件夹..."
   rm -rf "${EFI_DIR}/EFI/CLOVER" && rm -rf "${EFI_DIR}/EFI/BOOT"
-  cp -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/BOOT" "${EFI_DIR}/EFI/" || restoreEFI
-  cp -rf "${WORK_DIR}/XiaoMi_Pro-${ver}/EFI/CLOVER" "${EFI_DIR}/EFI/"  || restoreEFI
+  cp -rf "${WORK_DIR}/$RELEASE_Dir/EFI/BOOT" "${EFI_DIR}/EFI/" || restoreEFI
+  cp -rf "${WORK_DIR}/$RELEASE_Dir/EFI/CLOVER" "${EFI_DIR}/EFI/"  || restoreEFI
   echo -e "[ ${GREEN}OK${OFF} ]更新完成"
 }
 
 function updateEFI() {
-  checkSystemIntegrity
-  downloadEFI
-  backupEFI
-  confirmBackup
-  compareEFI
-  editEFI
-  replaceEFI
-  unmountEFI
+  if [[ $1 == "--LOCAL_RELEASE" ]]; then
+    checkSystemIntegrity
+    mv "build/XiaoMi_Pro-local" "./"
+    RELEASE_Dir="XiaoMi_Pro-local"
+    backupEFI
+    confirmBackup
+    compareEFI
+    editEFI
+    replaceEFI
+    unmountEFI
+  else
+    checkSystemIntegrity
+    downloadEFI
+    backupEFI
+    confirmBackup
+    compareEFI
+    editEFI
+    replaceEFI
+    unmountEFI
+  fi
 }
 
 # 删除之前的蓝牙配置文件(SSDT-USB, SSDT-USB-USBBT, SSDT-SolderBT(更改为SSDT-USB-WLAN_LTEBT), SSDT-USB-WLAN_LTEBT, 和 SSDT-USB-FingerBT)
@@ -396,6 +440,9 @@ function deleteBT() {
   rm -rf "${EFI_DIR}/EFI/CLOVER/ACPI/patched/SSDT-USB-SolderBT.aml" >/dev/null 2>&1
   rm -rf "${EFI_DIR}/EFI/CLOVER/ACPI/patched/SSDT-USB-WLAN_LTEBT.aml" >/dev/null 2>&1
   rm -rf "${EFI_DIR}/EFI/CLOVER/ACPI/patched/SSDT-USB-FingerBT.aml" >/dev/null 2>&1
+  
+  rm -rf "${EFI_DIR}/EFI/CLOVER/kexts/Other/IntelBluetoothFirmware.kext" >/dev/null 2>&1
+  rm -rf "${EFI_DIR}/EFI/CLOVER/kexts/Other/IntelBluetoothInjector.kext" >/dev/null 2>&1
 
 # 运行此方法后需要运行unmountEFI方法
 }
@@ -463,56 +510,6 @@ function changeBT() {
   echo -e "[ ${GREEN}OK${OFF} ]修改完成"
 }
 
-# 移除帧缓存补丁和0xE2寄存器补丁如果安装了 https://github.com/daliansky/XiaoMi-Pro-Hackintosh/tree/master/BIOS/DVMT_and_0xE2_fix 里的脚本, credit Menchen
-function removeDVMTMSR() {
-  echo
-  echo "修改前请先阅读 https://github.com/daliansky/XiaoMi-Pro-Hackintosh/blob/master/BIOS/DVMT_and_0xE2_fix/README_CN.md"
-  open -a "/Applications/Safari.app" https://github.com/daliansky/XiaoMi-Pro-Hackintosh/blob/master/BIOS/DVMT_and_0xE2_fix/README_CN.md
-
-  echo
-  echo "-----------------------------------------------------------"
-  echo "|******************** 选择 Clover 补丁 ********************|"
-  echo "-----------------------------------------------------------"
-  echo "(1) 32mb帧缓存补丁 和 0xE2寄存器补丁(默认)"
-  echo "(2) 仅0xE2寄存器补丁, 选这个如果帧缓存=64mb"
-  echo "(3) 仅32mb帧缓存补丁, 选这个如果解锁了0xE2寄存器"
-  echo "(4) 无需任何补丁, 选这个如果你在BIOS里面解锁和设置了0xE2和64mb帧缓存"
-  echo -e "${BOLD}您想选择哪个模式? (1/2/3/4)${OFF}"
-  read -rp ":" cloverpatch_selection
-  case ${cloverpatch_selection} in
-    1)
-    # 保持默认
-    ;;
-
-    2)
-    mountEFI
-    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-fbmem" "${EFI_DIR}/EFI/CLOVER/config.plist"
-    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem" "${EFI_DIR}/EFI/CLOVER/config.plist"
-    unmountEFI
-    ;;
-
-    3)
-    mountEFI
-    $pledit -c "delete KernelAndKextPatches:KernelToPatch:0" "${EFI_DIR}/EFI/CLOVER/config.plist"
-    unmountEFI
-    ;;
-
-    4)
-    mountEFI
-    $pledit -c "delete KernelAndKextPatches:KernelToPatch:0" "${EFI_DIR}/EFI/CLOVER/config.plist"
-    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-fbmem" "${EFI_DIR}/EFI/CLOVER/config.plist"
-    $pledit -c "delete Devices:Properties:PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem" "${EFI_DIR}/EFI/CLOVER/config.plist"
-    unmountEFI
-    ;;
-
-    *)
-    echo -e "[ ${RED}ERROR${OFF} ]: 输入有误"
-    returnMenu
-    ;;
-  esac
-  echo -e "[ ${GREEN}OK${OFF} ]修改完成"
-}
-
 function fixWindows() {
   echo
   echo "确保能通过F12启动Windows"
@@ -521,7 +518,13 @@ function fixWindows() {
   curl --silent -O "${repoURL}" || networkWarn
 
   mountEFI
-  cp -rf "AptioMemoryFix.efi" "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/"
+  if [[ -f "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/AptioMemoryFix.efi" ]]; then
+    cp -rf "AptioMemoryFix.efi" "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/"
+  elif [[ -f "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/OcQuirks.efi" ]]; then
+    rm -rf "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/OcQuirks.efi"
+    rm -rf "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/OpenRuntime.efi"
+    cp -rf "AptioMemoryFix.efi" "${EFI_DIR}/EFI/CLOVER/drivers/UEFI/"
+  fi
   echo -e "[ ${GREEN}OK${OFF} ]修复完成"
 
   unmountEFI
@@ -608,18 +611,19 @@ function main() {
   echo "您的主板型号是 ${MAINBOARD}"
   echo '====================================================================='
   echo -e "${BOLD}(1) 更新EFI${OFF}"
-  echo "(2) 更改蓝牙模式 (仅支持最新release)"
-  echo "(3) 通用声卡修复 (credits Menchen)"
-  echo "(4) 添加色彩文件"
-  echo "(5) 更新变频管理"
-  echo "(6) 更改TDP和CPU电压 (credits Pasi-Studio)"
-  echo "(7) 开启HiDPI"
-  echo "(8) 设置帧缓存为64mb (4K 屏幕) 和 解锁0xE2寄存器 (credit Menchen)"
-  echo "(9) 修复Windows启动 (仅支持最新release)"
-  echo "(10) 修复Apple服务"
-  echo "(11) 反馈问题"
-  echo "(12) 退出"
-  echo -e "${BOLD}您想选择哪个选项? (1/2/3/4/5/6/7/8/9/10/11/12)${OFF}"
+  echo "(2) 构建最新测试版EFI"
+  echo "(3) 构建并更新最新测试版EFI"
+  echo "(4) 更改蓝牙模式 (仅支持最新release)"
+  echo "(5) 通用声卡修复 (credits Menchen)"
+  echo "(6) 添加色彩文件"
+  echo "(7) 更新变频管理"
+  echo "(8) 更改TDP和CPU电压 (credits Pasi-Studio)"
+  echo "(9) 开启HiDPI"
+  echo "(10) 修复Windows启动 (仅支持最新release)"
+  echo "(11) 修复Apple服务"
+  echo "(12) 反馈问题"
+  echo "(13) 退出"
+  echo -e "${BOLD}您想选择哪个选项? (1/2/3/4/5/6/7/8/9/10/11/12/13)${OFF}"
   read -rp ":" xm_selection
   case ${xm_selection} in
     1)
@@ -628,56 +632,61 @@ function main() {
     ;;
 
     2)
-    changeBT
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/makefile.sh)"
     returnMenu
     ;;
 
     3)
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/ALCPlugFix/one-key-alcplugfix_cn.sh)"
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/makefile.sh)" && updateEFI "--LOCAL_RELEASE"
     returnMenu
     ;;
 
     4)
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/ColorProfile/one-key-colorprofile_cn.sh)"
+    changeBT
     returnMenu
     ;;
 
     5)
-    bash -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/one-key-cpufriend/one-key-cpufriend_cn.sh)"
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/ALCPlugFix/one-key-alcplugfix_cn.sh)"
     returnMenu
     ;;
 
     6)
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/Pasi-Studio/mpcpu/master/mpcpu.sh)"
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/ColorProfile/one-key-colorprofile_cn.sh)"
     returnMenu
     ;;
 
     7)
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/one-key-hidpi/one-key-hidpi_cn.sh)"
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/daliansky/XiaoMi-Pro-Hackintosh/master/one-key-cpufriend/one-key-cpufriend_cn.sh)"
     returnMenu
     ;;
 
     8)
-    removeDVMTMSR
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/Pasi-Studio/mpcpu/master/mpcpu.sh)"
     returnMenu
     ;;
 
     9)
-    fixWindows
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/xzhih/one-key-hidpi/master/hidpi.sh)"
     returnMenu
     ;;
 
     10)
-    fixAppleService
+    fixWindows
     returnMenu
     ;;
 
     11)
-    reportProblem
+    fixAppleService
     returnMenu
     ;;
 
     12)
+    reportProblem
+    returnMenu
+    ;;
+
+    13)
     clean
     echo
     echo "祝您有开心的一天! 再见"
